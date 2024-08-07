@@ -1,0 +1,9 @@
+#footer {
+  padding: 0.5em 0.7em;
+  background-color: var(--bs-primary);
+  color: white;
+}
+
+#footer a {
+  color: white;
+}

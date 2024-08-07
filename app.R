@@ -6,26 +6,14 @@ library(promises)
 
 # Define UI
 ui <- page_fluid(
-  tags$head(
-    tags$style(HTML("
-      #footer {
-        padding: 0.5em 0.7em;
-        background-color: var(--bs-primary);
-        color: white;
-      }
-      #footer a {
-        color: white;
-      }
-    "))
-  ),
-  
-  titlePanel("Multimodal Chat Demo"),
+  tags$head(includeCSS("styles.css")),
   
   shinymedia::input_video_clip("clip", reset_on_record = FALSE,
-                               class = "mt-3 mx-auto", 
-                               style = css(width = "600px", max_width = "100%"),
-                               video_bits_per_second = 256000,
-                               audio_bits_per_second = 64000),
+    class = "mt-3 mx-auto", 
+    style = css(width = "600px", max_width = "100%"),
+    video_bits_per_second = 256000,
+    audio_bits_per_second = 64000
+  ),
   
   uiOutput("response"),
   
@@ -34,17 +22,9 @@ ui <- page_fluid(
     div(
       class = "mx-auto",
       style = css(width = "600px", max_width = "100%"),
-      div(
-        class = "float-left",
-        "Built in R with ",
-        a("Shiny", href = "https://shiny.posit.co/")
-      ),
-      div(
-        class = "float-right",
-        a(
-          href = "https://github.com/jcheng5/multimodal",
-          icon("github"), "View source code"
-        )
+      div(class = "float-left", "Built in R with ", a("Shiny", href = "https://shiny.posit.co/")),
+      div(class = "float-right",
+        a(href = "https://github.com/jcheng5/multimodal", icon("github"), "View source code")
       )
     )
   )
@@ -92,11 +72,11 @@ server <- function(input, output, session) {
         )
       }
     } else {
-      audio_uri <- chat_task() %...>%
+      chat_task() %...>%
         shinymedia::audio_spinner(src = ., autodismiss = FALSE)
     }
   })
 }
 
 # Run the application 
-shinyApp(ui = ui, server = server)
+shinyApp(ui, server)
