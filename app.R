@@ -2,8 +2,7 @@ library(shiny)
 library(bslib)
 library(htmltools)
 library(shinymedia)
-library(jsonlite)
-library(httr)
+library(promises)
 
 # Define UI
 ui <- page_fluid(
@@ -22,7 +21,7 @@ ui <- page_fluid(
   
   titlePanel("Multimodal Chat Demo"),
   
-  shinymedia::input_video_clip("clip", reset_on_record = TRUE, 
+  shinymedia::input_video_clip("clip", reset_on_record = FALSE,
                                class = "mt-3 mx-auto", 
                                style = css(width = "600px", max_width = "100%"),
                                video_bits_per_second = 256000,
@@ -53,38 +52,48 @@ ui <- page_fluid(
 
 # Define server logic
 server <- function(input, output, session) {
+  show_intro <- TRUE
+
+  # Stores the conversation so far
   messages <- reactiveVal(list())
   
-  chat_task <- reactive({
+  chat_task <- eventReactive(input$clip, {
     req(input$clip)
     p <- Progress$new()
-    tryCatch({
-      result <- chat(input$clip, messages(), progress = p)
-      messages(result$messages)
-      result$audio_uri
-    }, finally = p$close())
-  }) %>% bindEvent(input$clip)
+    chat(input$clip, messages(), progress = p) |>
+      then(\(result) {
+        messages(result$messages)
+        result$audio_uri
+      }) |>
+      finally(\() {
+        p$close()
+      })
+  })
   
   output$response <- renderUI({
     if (is.null(input$clip)) {
-      card(
-        class = "mt-3 mx-auto",
-        style = css(width = "600px", max_width = "100%"),
-        markdown("
-          **Instructions:** Record a short video clip to start chatting with GPT-4o.
-          After it responds, you can record another clip to continue the conversation.
-          Reload the browser to start a new conversation.
+      if (show_intro) {
+        show_intro <<- FALSE
 
-          Some ideas to get you started:
+        card(
+          class = "mt-3 mx-auto",
+          style = css(width = "600px", max_width = "100%"),
+          markdown("
+            **Instructions:** Record a short video clip to start chatting with GPT-4o.
+            After it responds, you can record another clip to continue the conversation.
+            Reload the browser to start a new conversation.
 
-          * \"What do you think of the outfit I'm wearing?\"
-          * \"Where does it look like I am right now?\"
-          * \"Tell me an interesting fact about an object you see in this video.\"
-        ")
-      )
+            Some ideas to get you started:
+
+            * \"What do you think of the outfit I'm wearing?\"
+            * \"Where does it look like I am right now?\"
+            * \"Tell me an interesting fact about an object you see in this video.\"
+          ")
+        )
+      }
     } else {
-      audio_uri <- chat_task()
-      shinymedia::audio_spinner(src = audio_uri, autodismiss = FALSE)
+      audio_uri <- chat_task() %...>%
+        shinymedia::audio_spinner(src = ., autodismiss = FALSE)
     }
   })
 }
