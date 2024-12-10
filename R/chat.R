@@ -1,4 +1,5 @@
 library(shiny)
+library(elmer)
 library(httr2)
 library(jsonlite)
 library(av)
@@ -30,7 +31,7 @@ whisper <- coro::async(function(audio_file_path, model = "whisper-1") {
   resp_body_json(resp)$text
 })
 
-chat <- coro::async(function(video_data_uri, messages, progress = NULL) {
+converse <- coro::async(function(chat, video_data_uri, progress = NULL) {
   # Function to update progress
   update_progress <- function(message, value) {
     if (!is.null(progress)) {
@@ -71,53 +72,11 @@ chat <- coro::async(function(video_data_uri, messages, progress = NULL) {
   # 4. Prepare image data URIs
   image_uris <- lapply(list.files(temp_frame_dir, full.names = TRUE), from_file)
     
-  # 5. Prepare the message for OpenAI API
-  update_progress("Preparing API request...", 0.3)
-  new_message <- list(
-    role = "user",
-    content = c(
-      list(list(type = "text", text = user_prompt)),
-      lapply(image_uris, function(uri) {
-        list(
-          type = "image_url",
-          image_url = list(url = uri)
-        )
-      })
-    )
-  )
-
-  all_messages <- c(messages, list(new_message))
-
-  # Add system message
-  system_message <- list(
-    role = "system",
-    content = paste(collapse = "\n", readLines("system_prompt.md", warn = FALSE))
-  )
-
-  all_messages <- c(list(system_message), all_messages)
-
-  # cat(jsonlite::toJSON(all_messages, pretty=TRUE, auto_unbox = TRUE))
-
-  # 6. Call OpenAI API
+  # 5. Call OpenAI API
   update_progress("Waiting for response...", 0.4)
-  openai_req <- request("https://api.openai.com/v1/chat/completions") |>
-    req_headers(
-      Authorization = paste("Bearer", openai_api_key),
-      "Content-Type" = "application/json"
-    ) |>
-    req_body_json(list(
-      model = "gpt-4o-mini",
-      messages = all_messages,
-      max_tokens = 300
-    )) |>
-    req_error(body = function(resp) stop("Error in OpenAI API call: ", resp_body_json(resp)$error$message))
-
-  openai_resp <- await(openai_req |> req_perform_promise())
-  # Parse the response
-  response_content <- resp_body_json(openai_resp)
-  response_text <- response_content$choices[[1]]$message$content
+  response_text <- await(chat$chat_async(user_prompt, !!!lapply(image_uris, content_image_url)))
     
-  # 7. Text-to-speech conversion
+  # 6. Text-to-speech conversion
   update_progress("Synthesizing audio...", 0.8)
   tts_req <- request("https://api.openai.com/v1/audio/speech") |>
     req_headers(
@@ -137,16 +96,13 @@ chat <- coro::async(function(video_data_uri, messages, progress = NULL) {
   writeBin(resp_body_raw(tts_resp), temp_audio_file)
   response_audio_uri <- from_file(temp_audio_file, "audio/mpeg")
   
-  # 8. Clean up temporary files
+  # 7. Clean up temporary files
   file.remove(temp_video_file, temp_audio_file)
   unlink(temp_frame_dir, recursive = TRUE)
   
-  # 9. Return results
+  # 8. Return results
   update_progress("Done!", 1)
-  list(
-    audio_uri = response_audio_uri,
-    messages = c(messages, list(list(role = "assistant", content = response_text)))
-  )
+  response_audio_uri
 })
 
 # Helper functions (datauri and media_extractor equivalents)

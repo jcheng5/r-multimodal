@@ -28,6 +28,7 @@ If you have an OpenAI account, you can generate an API key from [this page](http
 ```
 pak::pak(c(
   "shiny",
+  "elmer",
   "posit-dev/shinymedia/r-package",
   "httr2",
   "av",

@@ -1,8 +1,11 @@
 library(shiny)
 library(bslib)
 library(htmltools)
+library(elmer)
 library(shinymedia)
 library(promises)
+
+system_prompt <- paste(collapse = "\n", readLines("system_prompt.md", warn = FALSE))
 
 # Define UI
 ui <- page_fluid(
@@ -34,17 +37,15 @@ ui <- page_fluid(
 server <- function(input, output, session) {
   show_intro <- TRUE
 
-  # Stores the conversation so far
-  messages <- reactiveVal(list())
-  
+  chat <- chat_openai(
+    model = "gpt-4o", 
+    system_prompt = system_prompt
+  )
+
   chat_task <- eventReactive(input$clip, {
     req(input$clip)
     p <- Progress$new()
-    chat(input$clip, messages(), progress = p) |>
-      then(\(result) {
-        messages(result$messages)
-        result$audio_uri
-      }) |>
+    converse(chat, input$clip, progress = p) |>
       finally(\() {
         p$close()
       })
