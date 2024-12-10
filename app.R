@@ -4,11 +4,13 @@ library(htmltools)
 library(elmer)
 library(shinymedia)
 library(promises)
+library(confetti)
 
 system_prompt <- paste(collapse = "\n", readLines("system_prompt.md", warn = FALSE))
 
 # Define UI
 ui <- page_fluid(
+  useConfetti(),
   tags$head(includeCSS("styles.css")),
   
   shinymedia::input_video_clip("clip", reset_on_record = FALSE,
@@ -37,10 +39,26 @@ ui <- page_fluid(
 server <- function(input, output, session) {
   show_intro <- TRUE
 
-  chat <- chat_openai(
-    model = "gpt-4o", 
-    system_prompt = system_prompt
+  chat <- chat_claude(
+    model = "claude-3-5-sonnet-latest", 
+    system_prompt = paste0(
+      system_prompt,
+      "\n\n",
+      "You have access to a show_confetti tool, which you should use ",
+      "anytime you want to express joy or excitement about something. ",
+      "It will show a delightful confetti animation on the user's screen."
+    )
   )
+
+  show_confetti <- function() {
+    session$onFlush(sendConfetti)
+    NULL
+  }
+
+  chat$register_tool(tool(
+    show_confetti,
+    "Shows a confetti animation on the user's screen."
+  ))
 
   chat_task <- eventReactive(input$clip, {
     req(input$clip)

@@ -34,7 +34,8 @@ pak::pak(c(
   "av",
   "dotenv",
   "base64enc",
-  "coro"
+  "coro",
+  "ArthurData/confetti"
 ))
 ```
 
