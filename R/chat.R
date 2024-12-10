@@ -15,7 +15,7 @@ if (openai_api_key == "") {
   stop("OPENAI_API_KEY not found in .env file")
 }
 
-whisper <- function(audio_file_path, model = "whisper-1") {
+whisper <- coro::async(function(audio_file_path, model = "whisper-1") {
   req <- request("https://api.openai.com/v1/audio/transcriptions") |>
     req_headers(
       Authorization = paste("Bearer", openai_api_key)
@@ -26,12 +26,11 @@ whisper <- function(audio_file_path, model = "whisper-1") {
     ) |>
     req_error(body = function(resp) stop("Error in Whisper API call: ", resp_body_json(resp)$error$message))
 
-  req |> req_perform_promise() |> then(\(resp) {
-    resp_body_json(resp)$text
-  })
-}
+  resp <- await(req |> req_perform_promise())
+  resp_body_json(resp)$text
+})
 
-chat <- function(video_data_uri, messages, progress = NULL) {
+chat <- coro::async(function(video_data_uri, messages, progress = NULL) {
   # Function to update progress
   update_progress <- function(message, value) {
     if (!is.null(progress)) {
@@ -67,91 +66,88 @@ chat <- function(video_data_uri, messages, progress = NULL) {
   
   # 3. Transcribe audio using Whisper API
   update_progress("Transcribing audio...", 0.2)
-  whisper(temp_audio_file) |> then(\(user_prompt) {
+  user_prompt <- await(whisper(temp_audio_file))
 
-    # 4. Prepare image data URIs
-    image_uris <- lapply(list.files(temp_frame_dir, full.names = TRUE), from_file)
-      
-    # 5. Prepare the message for OpenAI API
-    update_progress("Preparing API request...", 0.3)
-    new_message <- list(
-      role = "user",
-      content = c(
-        list(list(type = "text", text = user_prompt)),
-        lapply(image_uris, function(uri) {
-          list(
-            type = "image_url",
-            image_url = list(url = uri)
-          )
-        })
-      )
-    )
-
-    all_messages <- c(messages, list(new_message))
-
-    # Add system message
-    system_message <- list(
-      role = "system",
-      content = paste(collapse = "\n", readLines("system_prompt.md", warn = FALSE))
-    )
-
-    all_messages <- c(list(system_message), all_messages)
-
-    # cat(jsonlite::toJSON(all_messages, pretty=TRUE, auto_unbox = TRUE))
-
-    # 6. Call OpenAI API
-    update_progress("Waiting for response...", 0.4)
-    openai_req <- request("https://api.openai.com/v1/chat/completions") |>
-      req_headers(
-        Authorization = paste("Bearer", openai_api_key),
-        "Content-Type" = "application/json"
-      ) |>
-      req_body_json(list(
-        model = "gpt-4o-mini",
-        messages = all_messages,
-        max_tokens = 300
-      )) |>
-      req_error(body = function(resp) stop("Error in OpenAI API call: ", resp_body_json(resp)$error$message))
-
-    openai_req |> req_perform_promise() |> then(\(openai_resp) {
-      # Parse the response
-      response_content <- resp_body_json(openai_resp)
-      response_text <- response_content$choices[[1]]$message$content
-      
-      # 7. Text-to-speech conversion
-      update_progress("Synthesizing audio...", 0.8)
-      tts_req <- request("https://api.openai.com/v1/audio/speech") |>
-        req_headers(
-          Authorization = paste("Bearer", openai_api_key),
-          "Content-Type" = "application/json"
-        ) |>
-        req_body_json(list(
-          model = "tts-1",
-          voice = "nova",
-          input = response_text
-        )) |>
-        req_error(body = function(resp) stop("Error in OpenAI TTS API call: ", resp_body_json(resp)$error$message))
-      
-      tts_req |> req_perform_promise() |> then(\(tts_resp) {
-        # Save the audio to a temporary file and create a data URI
-        temp_audio_file <- tempfile(fileext = ".mp3")
-        writeBin(resp_body_raw(tts_resp), temp_audio_file)
-        response_audio_uri <- from_file(temp_audio_file, "audio/mpeg")
-        
-        # 8. Clean up temporary files
-        file.remove(temp_video_file, temp_audio_file)
-        unlink(temp_frame_dir, recursive = TRUE)
-        
-        # 9. Return results
-        update_progress("Done!", 1)
+  # 4. Prepare image data URIs
+  image_uris <- lapply(list.files(temp_frame_dir, full.names = TRUE), from_file)
+    
+  # 5. Prepare the message for OpenAI API
+  update_progress("Preparing API request...", 0.3)
+  new_message <- list(
+    role = "user",
+    content = c(
+      list(list(type = "text", text = user_prompt)),
+      lapply(image_uris, function(uri) {
         list(
-          audio_uri = response_audio_uri,
-          messages = c(messages, list(list(role = "assistant", content = response_text)))
+          type = "image_url",
+          image_url = list(url = uri)
         )
       })
-    })
-  })
-}
+    )
+  )
+
+  all_messages <- c(messages, list(new_message))
+
+  # Add system message
+  system_message <- list(
+    role = "system",
+    content = paste(collapse = "\n", readLines("system_prompt.md", warn = FALSE))
+  )
+
+  all_messages <- c(list(system_message), all_messages)
+
+  # cat(jsonlite::toJSON(all_messages, pretty=TRUE, auto_unbox = TRUE))
+
+  # 6. Call OpenAI API
+  update_progress("Waiting for response...", 0.4)
+  openai_req <- request("https://api.openai.com/v1/chat/completions") |>
+    req_headers(
+      Authorization = paste("Bearer", openai_api_key),
+      "Content-Type" = "application/json"
+    ) |>
+    req_body_json(list(
+      model = "gpt-4o-mini",
+      messages = all_messages,
+      max_tokens = 300
+    )) |>
+    req_error(body = function(resp) stop("Error in OpenAI API call: ", resp_body_json(resp)$error$message))
+
+  openai_resp <- await(openai_req |> req_perform_promise())
+  # Parse the response
+  response_content <- resp_body_json(openai_resp)
+  response_text <- response_content$choices[[1]]$message$content
+    
+  # 7. Text-to-speech conversion
+  update_progress("Synthesizing audio...", 0.8)
+  tts_req <- request("https://api.openai.com/v1/audio/speech") |>
+    req_headers(
+      Authorization = paste("Bearer", openai_api_key),
+      "Content-Type" = "application/json"
+    ) |>
+    req_body_json(list(
+      model = "tts-1",
+      voice = "nova",
+      input = response_text
+    )) |>
+    req_error(body = function(resp) stop("Error in OpenAI TTS API call: ", resp_body_json(resp)$error$message))
+  
+  tts_resp <- await(tts_req |> req_perform_promise())
+  # Save the audio to a temporary file and create a data URI
+  temp_audio_file <- tempfile(fileext = ".mp3")
+  writeBin(resp_body_raw(tts_resp), temp_audio_file)
+  response_audio_uri <- from_file(temp_audio_file, "audio/mpeg")
+  
+  # 8. Clean up temporary files
+  file.remove(temp_video_file, temp_audio_file)
+  unlink(temp_frame_dir, recursive = TRUE)
+  
+  # 9. Return results
+  update_progress("Done!", 1)
+  list(
+    audio_uri = response_audio_uri,
+    messages = c(messages, list(list(role = "assistant", content = response_text)))
+  )
+})
 
 # Helper functions (datauri and media_extractor equivalents)
 from_file <- function(file_path, mime_type = NULL) {

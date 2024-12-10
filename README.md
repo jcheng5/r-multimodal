@@ -29,10 +29,11 @@ If you have an OpenAI account, you can generate an API key from [this page](http
 pak::pak(c(
   "shiny",
   "posit-dev/shinymedia/r-package",
-  "r-lib/httr2",
+  "httr2",
   "av",
   "dotenv",
-  "base64enc"
+  "base64enc",
+  "coro"
 ))
 ```
 
